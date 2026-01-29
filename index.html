@@ -14,43 +14,37 @@
     </header>
 
     <main class="app-main">
-      <section class="card">
+      <section class="card card--form-wide">
         <h2>게시물 등록</h2>
-        <form id="post-form" class="post-form">
-          <div class="form-row">
-            <label for="author">작성자</label>
-            <input type="text" id="author" name="author" placeholder="작성자 이름을 입력하세요" required />
-          </div>
-
-          <div class="form-row">
-            <label for="title">제목</label>
-            <input type="text" id="title" name="title" placeholder="게시물 제목을 입력하세요" required />
-          </div>
-
-          <div class="form-row">
-            <label for="content">내용</label>
-            <textarea id="content" name="content" rows="4" placeholder="게시물 내용을 입력하세요"></textarea>
-          </div>
-
-          <div class="form-row form-row-inline">
-            <div>
+        <form id="post-form" class="post-form post-form--horizontal">
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="department">부서</label>
+              <input type="text" id="department" name="department" placeholder="부서" required />
+            </div>
+            <div class="form-row">
+              <label for="personInCharge">담당자</label>
+              <input type="text" id="personInCharge" name="personInCharge" placeholder="담당자" required />
+            </div>
+            <div class="form-row">
+              <label for="title">제목</label>
+              <input type="text" id="title" name="title" placeholder="제목" required />
+            </div>
+            <div class="form-row">
               <label for="startDate">게시 시작일</label>
               <input type="date" id="startDate" name="startDate" required />
             </div>
-            <div>
+            <div class="form-row">
               <label for="endDate">게시 종료일</label>
               <input type="date" id="endDate" name="endDate" required />
             </div>
-          </div>
-
-          <div class="form-row">
-            <label for="attachment">파일 첨부</label>
-            <input type="file" id="attachment" name="attachment" accept="*" class="file-input" />
-            <span class="helper-text">최대 2MB까지 저장됩니다. (브라우저 저장 공간 제한)</span>
-          </div>
-
-          <div class="form-row">
-            <button type="submit" class="btn-primary">게시물 등록</button>
+            <div class="form-row form-row--file">
+              <label for="attachment">파일 첨부 (최대 2MB)</label>
+              <input type="file" id="attachment" name="attachment" accept="*" class="file-input" />
+            </div>
+            <div class="form-row form-row--submit">
+              <button type="submit" class="btn-primary">게시물 등록</button>
+            </div>
           </div>
         </form>
       </section>
@@ -65,7 +59,7 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card card--list-wide">
         <div class="card-header">
           <h2>게시 기간 목록</h2>
           <button id="clear-all" class="btn-secondary" type="button">전체 삭제</button>
