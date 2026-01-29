@@ -4,6 +4,9 @@ const STORAGE_KEY = "board_posts_with_period";
 // 첨부파일 최대 크기 (2MB)
 const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
 
+// 게시 기간 목록 정렬 상태: { by: 'startDate'|'endDate'|null, order: 'asc'|'desc' }
+let listSort = { by: null, order: "asc" };
+
 /**
  * 저장된 게시물 목록 불러오기
  */
@@ -79,7 +82,7 @@ function readFileAsBase64(file) {
 }
 
 /**
- * 단일 게시물 DOM 요소 생성
+ * 단일 게시물 DOM 요소 생성 (가로형 목록용: 제목 | 부서 | 담당자 | 시작일 | 종료일 | 상태 | 첨부파일 | 삭제)
  */
 function createPostElement(post, index, onDelete) {
   const status = getPostStatus(post.startDate, post.endDate);
@@ -88,110 +91,198 @@ function createPostElement(post, index, onDelete) {
   container.className = "post-item";
   container.dataset.index = String(index);
 
-  const header = document.createElement("div");
-  header.className = "post-header";
-
   const title = document.createElement("div");
   title.className = "post-title";
   title.textContent = post.title || "(제목 없음)";
 
-  const rightHeader = document.createElement("div");
-  rightHeader.style.display = "flex";
-  rightHeader.style.alignItems = "center";
-  rightHeader.style.gap = "6px";
+  const department = document.createElement("div");
+  department.className = "post-meta";
+  department.textContent = post.department ?? "-";
 
-  const authorBadge = document.createElement("span");
-  authorBadge.className = "badge badge-author";
-  authorBadge.textContent = post.author || "익명";
+  const personInCharge = document.createElement("div");
+  personInCharge.className = "post-meta";
+  personInCharge.textContent = post.personInCharge ?? post.author ?? "익명";
+
+  const startDateEl = document.createElement("div");
+  startDateEl.className = "post-date-start";
+  startDateEl.textContent = post.startDate || "-";
+
+  const endDateEl = document.createElement("div");
+  endDateEl.className = "post-date-end";
+  endDateEl.textContent = post.endDate || "-";
 
   const statusSpan = document.createElement("span");
   statusSpan.className = `post-status ${status.code}`;
   statusSpan.textContent = status.label;
 
-  rightHeader.appendChild(authorBadge);
-  rightHeader.appendChild(statusSpan);
-
-  header.appendChild(title);
-  header.appendChild(rightHeader);
-
-  const content = document.createElement("div");
-  content.className = "post-content";
-  content.textContent = post.content || "(내용 없음)";
-
-  const period = document.createElement("div");
-  period.className = "post-period";
-  period.textContent = `게시 기간: ${formatPeriod(post.startDate, post.endDate)}`;
-
+  const attCell = document.createElement("div");
+  attCell.className = "post-attachment";
   if (post.attachment && post.attachment.fileName) {
-    const att = document.createElement("div");
-    att.className = "post-attachment";
     const a = document.createElement("a");
     a.href = "data:" + (post.attachment.mimeType || "") + ";base64," + (post.attachment.dataBase64 || "");
     a.download = post.attachment.fileName;
-    a.textContent = "📎 " + post.attachment.fileName;
-    att.appendChild(a);
-    container.appendChild(header);
-    container.appendChild(content);
-    container.appendChild(period);
-    container.appendChild(att);
+    a.className = "btn-download";
+    a.textContent = "다운로드";
+    attCell.appendChild(a);
   } else {
-    container.appendChild(header);
-    container.appendChild(content);
-    container.appendChild(period);
+    attCell.textContent = "-";
+    attCell.style.color = "#9ca3af";
   }
-
-  const footer = document.createElement("div");
-  footer.className = "post-footer";
-
-  const createdAt = document.createElement("span");
-  createdAt.className = "post-meta";
-  createdAt.textContent = `등록일: ${post.createdAt || "-"}`;
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "post-delete";
   deleteBtn.textContent = "삭제";
-  deleteBtn.addEventListener("click", () => {
-    onDelete(index);
-  });
+  deleteBtn.addEventListener("click", () => onDelete(index));
 
-  footer.appendChild(createdAt);
-  footer.appendChild(deleteBtn);
-
-  container.appendChild(footer);
+  container.appendChild(department);
+  container.appendChild(personInCharge);
+  container.appendChild(title);
+  container.appendChild(startDateEl);
+  container.appendChild(endDateEl);
+  container.appendChild(statusSpan);
+  container.appendChild(attCell);
+  container.appendChild(deleteBtn);
 
   return container;
 }
 
 /**
- * 게시물 목록 렌더링
+ * 목록에서 드래그로 순서 변경 (전체 배열 기준)
+ */
+function reorderPostsByIndex(posts, fromIndex, toIndex) {
+  if (fromIndex === toIndex) return posts;
+  const newPosts = [...posts];
+  const [removed] = newPosts.splice(fromIndex, 1);
+  let insertAt = toIndex;
+  if (fromIndex < toIndex) insertAt -= 1;
+  newPosts.splice(insertAt, 0, removed);
+  return newPosts;
+}
+
+/**
+ * 간트 차트에서 드래그로 순서 변경 (기간 있는 항목만 재정렬 후 전체 배열 재구성)
+ */
+function reorderPostsByGanttIndices(posts, fromGanttIndex, toGanttIndex) {
+  const withDatesIndices = [];
+  posts.forEach((p, i) => {
+    if (p.startDate && p.endDate) withDatesIndices.push(i);
+  });
+  if (fromGanttIndex === toGanttIndex) return posts;
+  const reordered = [...withDatesIndices];
+  const [removed] = reordered.splice(fromGanttIndex, 1);
+  let insertAt = toGanttIndex;
+  if (fromGanttIndex < toGanttIndex) insertAt -= 1;
+  reordered.splice(insertAt, 0, removed);
+  const withoutIndices = posts.map((_, i) => i).filter((i) => !withDatesIndices.includes(i)).sort((a, b) => a - b);
+  const fullNewOrder = [...reordered];
+  withoutIndices.forEach((idx) => {
+    fullNewOrder.splice(idx, 0, idx);
+  });
+  return fullNewOrder.map((i) => posts[i]);
+}
+
+/**
+ * 정렬 적용한 목록 반환 (시작일/종료일 오름·내림차순)
+ */
+function getDisplayPosts(posts) {
+  if (!posts.length || !listSort.by) return [...posts];
+  const key = listSort.by;
+  const order = listSort.order === "asc" ? 1 : -1;
+  return [...posts].sort((a, b) => {
+    const va = a[key] || "";
+    const vb = b[key] || "";
+    return order * (va < vb ? -1 : va > vb ? 1 : 0);
+  });
+}
+
+/**
+ * 게시물 목록 렌더링 (가로형 테이블) + 드래그 앤 드롭 + 정렬
  */
 function renderPosts(posts) {
   const listEl = document.getElementById("post-list");
   if (!listEl) return;
 
+  const displayPosts = getDisplayPosts(posts);
+
   listEl.innerHTML = "";
+  listEl.classList.remove("post-list--table");
 
   if (!posts.length) {
     const empty = document.createElement("p");
     empty.className = "helper-text";
     empty.textContent = "아직 등록된 게시물이 없습니다. 위 폼을 이용해 첫 게시물을 등록해 보세요.";
     listEl.appendChild(empty);
+    renderGanttChart(posts);
     return;
   }
 
-  posts.forEach((post, index) => {
+  listEl.classList.add("post-list--table");
+
+  const header = document.createElement("div");
+  header.className = "post-list-header";
+  header.innerHTML = "<span>부서</span><span>담당자</span><span>제목</span><span></span><span></span><span>상태</span><span>첨부파일</span><span></span>";
+
+  const startDateCol = header.children[3];
+  startDateCol.className = "post-list-header-sort";
+  startDateCol.textContent = "시작일";
+  startDateCol.title = "클릭하여 정렬";
+  if (listSort.by === "startDate") startDateCol.textContent += listSort.order === "asc" ? " ▲" : " ▼";
+  startDateCol.addEventListener("click", () => {
+    if (listSort.by === "startDate") listSort.order = listSort.order === "asc" ? "desc" : "asc";
+    else listSort = { by: "startDate", order: "asc" };
+    renderPosts(posts);
+  });
+
+  const endDateCol = header.children[4];
+  endDateCol.className = "post-list-header-sort";
+  endDateCol.textContent = "종료일";
+  endDateCol.title = "클릭하여 정렬";
+  if (listSort.by === "endDate") endDateCol.textContent += listSort.order === "asc" ? " ▲" : " ▼";
+  endDateCol.addEventListener("click", () => {
+    if (listSort.by === "endDate") listSort.order = listSort.order === "asc" ? "desc" : "asc";
+    else listSort = { by: "endDate", order: "asc" };
+    renderPosts(posts);
+  });
+
+  listEl.appendChild(header);
+
+  displayPosts.forEach((post, index) => {
     const item = createPostElement(post, index, (idx) => {
-      const newPosts = [...posts];
-      newPosts.splice(idx, 1);
+      const toRemove = displayPosts[idx];
+      const newPosts = posts.filter((p) => p !== toRemove);
       savePosts(newPosts);
       renderPosts(newPosts);
       renderGanttChart(newPosts);
     });
+    item.draggable = true;
+    item.dataset.index = String(index);
+    item.classList.add("post-item--draggable");
+    item.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", index);
+      e.dataTransfer.effectAllowed = "move";
+      item.classList.add("post-item--dragging");
+    });
+    item.addEventListener("dragend", () => item.classList.remove("post-item--dragging"));
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const to = parseInt(item.dataset.index, 10);
+      if (from === to) return;
+      const reordered = reorderPostsByIndex(displayPosts, from, to);
+      savePosts(reordered);
+      listSort = { by: null, order: "asc" };
+      renderPosts(reordered);
+      renderGanttChart(reordered);
+    });
     listEl.appendChild(item);
   });
 
-  renderGanttChart(posts);
+  renderGanttChart(displayPosts);
 }
 
 /**
@@ -239,28 +330,42 @@ function renderGanttChart(posts) {
   const totalMs = range.max - range.min;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayPct =
-    today >= range.min && today <= range.max
-      ? ((today - range.min) / totalMs) * 100
-      : null;
+  const rangeMinNorm = new Date(range.min);
+  rangeMinNorm.setHours(0, 0, 0, 0);
+  const rangeMaxNorm = new Date(range.max);
+  rangeMaxNorm.setHours(0, 0, 0, 0);
+  let todayPct;
+  if (today < rangeMinNorm) {
+    todayPct = 25;
+  } else if (today > rangeMaxNorm) {
+    todayPct = 100;
+  } else {
+    todayPct = ((today - range.min) / totalMs) * 100;
+  }
+  todayPct = Math.max(0, Math.min(100, todayPct));
+  const todayStr = today.toISOString().slice(0, 10);
+  el.style.setProperty("--today-pct", String(todayPct));
 
   const header = document.createElement("div");
   header.className = "gantt-timeline-header";
 
   const labelHeader = document.createElement("div");
   labelHeader.className = "gantt-label-header";
-  labelHeader.textContent = "게시물";
+  labelHeader.textContent = "제목";
 
   const datesHeader = document.createElement("div");
   datesHeader.className = "gantt-dates-header";
   const startStr = range.min.toISOString().slice(0, 10);
   const endStr = range.max.toISOString().slice(0, 10);
-  datesHeader.textContent = `${startStr} ~ ${endStr}`;
-  datesHeader.style.display = "flex";
-  datesHeader.style.alignItems = "center";
-  datesHeader.style.paddingLeft = "8px";
-  datesHeader.style.fontSize = "0.78rem";
-  datesHeader.style.color = "#64748b";
+  datesHeader.innerHTML = "";
+  const datesLabelStart = document.createElement("span");
+  datesLabelStart.className = "gantt-header-date";
+  datesLabelStart.textContent = "시작일 " + startStr;
+  const datesLabelEnd = document.createElement("span");
+  datesLabelEnd.className = "gantt-header-date";
+  datesLabelEnd.textContent = "종료일 " + endStr;
+  datesHeader.appendChild(datesLabelStart);
+  datesHeader.appendChild(datesLabelEnd);
 
   header.appendChild(labelHeader);
   header.appendChild(datesHeader);
@@ -268,25 +373,44 @@ function renderGanttChart(posts) {
 
   const body = document.createElement("div");
   body.className = "gantt-timeline-body";
+  body.style.setProperty("--today-pct", String(todayPct));
 
-  if (todayPct !== null) {
-    const todayLine = document.createElement("div");
-    todayLine.className = "gantt-today-line";
-    todayLine.style.left = todayPct + "%";
-    body.appendChild(todayLine);
-  }
+  const todayLine = document.createElement("div");
+  todayLine.className = "gantt-today-line";
+  body.appendChild(todayLine);
 
-  withDates.forEach((post) => {
+  withDates.forEach((post, ganttIndex) => {
     const row = document.createElement("div");
-    row.className = "gantt-row";
+    row.className = "gantt-row gantt-row--draggable";
+    row.draggable = true;
+    row.dataset.ganttIndex = String(ganttIndex);
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "gantt-row-label-wrap";
 
     const label = document.createElement("div");
     label.className = "gantt-row-label";
-    label.title = (post.title || "") + " · " + (post.author || "");
-    label.textContent = (post.title || "(제목 없음)") + " · " + (post.author || "익명");
+    label.title = (post.title || "(제목 없음)") + " (" + post.startDate + " ~ " + post.endDate + ")";
+    label.textContent = post.title || "(제목 없음)";
+
+    labelWrap.appendChild(label);
 
     const barWrap = document.createElement("div");
     barWrap.className = "gantt-row-bar-wrap";
+
+    const datesRow = document.createElement("div");
+    datesRow.className = "gantt-cell-dates-row";
+    const startDateCell = document.createElement("span");
+    startDateCell.className = "gantt-cell-date";
+    startDateCell.textContent = post.startDate;
+    const endDateCell = document.createElement("span");
+    endDateCell.className = "gantt-cell-date";
+    endDateCell.textContent = post.endDate;
+    datesRow.appendChild(startDateCell);
+    datesRow.appendChild(endDateCell);
+
+    const barRow = document.createElement("div");
+    barRow.className = "gantt-cell-bar-row";
 
     const start = new Date(post.startDate).getTime();
     const end = new Date(post.endDate).getTime();
@@ -299,13 +423,44 @@ function renderGanttChart(posts) {
     bar.style.width = Math.max(widthPct, 2) + "%";
     bar.title = post.startDate + " ~ " + post.endDate;
 
-    barWrap.appendChild(bar);
-    row.appendChild(label);
+    barRow.appendChild(bar);
+    barWrap.appendChild(datesRow);
+    barWrap.appendChild(barRow);
+    row.appendChild(labelWrap);
     row.appendChild(barWrap);
+
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", ganttIndex);
+      e.dataTransfer.effectAllowed = "move";
+      row.classList.add("gantt-row--dragging");
+    });
+    row.addEventListener("dragend", () => row.classList.remove("gantt-row--dragging"));
+    row.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData("text/plain"), 10);
+      const to = parseInt(row.dataset.ganttIndex, 10);
+      if (from === to) return;
+      const newPosts = reorderPostsByGanttIndices(posts, from, to);
+      savePosts(newPosts);
+      renderPosts(newPosts);
+    });
+
     body.appendChild(row);
   });
 
   el.appendChild(body);
+
+  const todayCaptionWrap = document.createElement("div");
+  todayCaptionWrap.className = "gantt-today-caption-wrap";
+  const todayCaption = document.createElement("span");
+  todayCaption.className = "gantt-today-caption";
+  todayCaption.textContent = "오늘 " + todayStr;
+  todayCaptionWrap.appendChild(todayCaption);
+  el.appendChild(todayCaptionWrap);
 }
 
 /**
@@ -332,15 +487,15 @@ function initApp() {
     event.preventDefault();
 
     const formData = new FormData(form);
-    const author = (formData.get("author") || "").toString().trim();
+    const department = (formData.get("department") || "").toString().trim();
+    const personInCharge = (formData.get("personInCharge") || "").toString().trim();
     const title = (formData.get("title") || "").toString().trim();
-    const content = (formData.get("content") || "").toString().trim();
     const startDate = (formData.get("startDate") || "").toString();
     const endDate = (formData.get("endDate") || "").toString();
     const fileInput = form.querySelector("#attachment");
 
-    if (!author || !title || !startDate || !endDate) {
-      alert("작성자, 제목, 게시 시작일, 게시 종료일은 필수입니다.");
+    if (!department || !personInCharge || !title || !startDate || !endDate) {
+      alert("부서, 담당자, 제목, 게시 시작일, 게시 종료일은 필수입니다.");
       return;
     }
 
@@ -368,9 +523,9 @@ function initApp() {
 
     const newPost = {
       id: Date.now(),
-      author,
+      department,
+      personInCharge,
       title,
-      content,
       startDate,
       endDate,
       createdAt,
@@ -382,7 +537,8 @@ function initApp() {
     renderPosts(posts);
 
     form.querySelector("#title").value = "";
-    form.querySelector("#content").value = "";
+    form.querySelector("#department").value = "";
+    form.querySelector("#personInCharge").value = "";
     if (fileInput) fileInput.value = "";
   });
 
