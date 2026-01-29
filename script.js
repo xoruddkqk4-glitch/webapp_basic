@@ -86,6 +86,28 @@ async function uploadAttachmentToStorage(file) {
 }
 
 /**
+ * 게시 상태 계산 (예: 진행중, 예정, 종료)
+ */
+function getPostStatus(startDate, endDate) {
+  if (!startDate || !endDate) return { code: "unknown", label: "기간 미설정" };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  s.setHours(0, 0, 0, 0);
+  e.setHours(0, 0, 0, 0);
+
+  if (today < s) {
+    return { code: "pending", label: "게시 예정" };
+  }
+  if (today > e) {
+    return { code: "expired", label: "게시 종료" };
+  }
+  return { code: "active", label: "게시 중" };
+}
+
+/**
  * 단일 게시물 DOM 요소 생성 (가로형 목록용: 제목 | 부서 | 담당자 | 시작일 | 종료일 | 상태 | 첨부파일 | 삭제)
  */
 function createPostElement(post, index, onDelete) {
