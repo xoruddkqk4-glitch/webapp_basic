@@ -100,14 +100,21 @@ const MAX_ATTACHMENT_SIZE = 2 * 1024 * 1024;
 let listSort = { by: null, order: "asc" };
 
 /**
- * 서울 시간대 기준 오늘 날짜 반환 (시/분/초는 00:00:00으로 설정)
+ * 서울 시간대 기준 오늘 날짜 반환 (UTC 기준 00:00:00으로 설정)
  */
 function getSeoulToday() {
   const now = new Date();
-  // 서울 시간대로 변환 (UTC+9)
-  const seoulTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-  seoulTime.setHours(0, 0, 0, 0);
-  return seoulTime;
+  // 서울 시간대의 현재 날짜 구성 요소 가져오기
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const dateStr = formatter.format(now); // YYYY-MM-DD 형식
+  
+  // parseDateInSeoul과 동일한 방식으로 파싱
+  return parseDateInSeoul(dateStr);
 }
 
 /**
@@ -115,10 +122,25 @@ function getSeoulToday() {
  */
 function getSeoulTodayString() {
   const now = new Date();
-  // 서울 시간대로 변환하여 YYYY-MM-DD 형식으로 반환
-  return new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }))
-    .toISOString()
-    .slice(0, 10);
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(now); // YYYY-MM-DD
+}
+
+/**
+ * YYYY-MM-DD 형식의 날짜 문자열을 UTC 기준 00:00:00 Date 객체로 변환
+ * 모든 날짜를 UTC 기준으로 통일하여 정확한 비교가 가능하도록 함
+ */
+function parseDateInSeoul(dateString) {
+  if (!dateString) return null;
+  // YYYY-MM-DD를 UTC 00:00:00으로 파싱
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  return date;
 }
 
 /**
@@ -167,10 +189,8 @@ function getPostStatus(startDate, endDate) {
   if (!startDate || !endDate) return { code: "unknown", label: "기간 미설정" };
   const today = getSeoulToday();
 
-  const s = new Date(startDate);
-  const e = new Date(endDate);
-  s.setHours(0, 0, 0, 0);
-  e.setHours(0, 0, 0, 0);
+  const s = parseDateInSeoul(startDate);
+  const e = parseDateInSeoul(endDate);
 
   if (today < s) {
     return { code: "pending", label: "게시 예정" };
@@ -414,19 +434,29 @@ function getDateRange(posts) {
   let max = null;
   posts.forEach((p) => {
     if (p.startDate) {
-      const d = new Date(p.startDate);
+      const d = parseDateInSeoul(p.startDate);
       if (min === null || d < min) min = d;
     }
     if (p.endDate) {
-      const d = new Date(p.endDate);
+      const d = parseDateInSeoul(p.endDate);
       if (max === null || d > max) max = d;
     }
   });
   if (min === null || max === null || min > max) return null;
+  
+  // 패딩 계산 (5% 또는 최소 7일)
   const pad = (max - min) * 0.05 || 86400000 * 7;
+  
+  // 패딩이 추가된 날짜를 UTC 00:00:00으로 정규화
+  const paddedMin = new Date(min.getTime() - pad);
+  paddedMin.setUTCHours(0, 0, 0, 0);
+  
+  const paddedMax = new Date(max.getTime() + pad);
+  paddedMax.setUTCHours(0, 0, 0, 0);
+  
   return { 
-    min: new Date(min.getTime() - pad), 
-    max: new Date(max.getTime() + pad),
+    min: paddedMin, 
+    max: paddedMax,
     actualMin: min,  // 실제 게시물 최소 시작일
     actualMax: max   // 실제 게시물 최대 종료일
   };
@@ -455,21 +485,28 @@ function renderGanttChart(posts) {
 
   const totalMs = range.max - range.min;
   const today = getSeoulToday();
-  const rangeMinNorm = new Date(range.min);
-  rangeMinNorm.setHours(0, 0, 0, 0);
-  const rangeMaxNorm = new Date(range.max);
-  rangeMaxNorm.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
+  const rangeMinMs = range.min.getTime();
+  const rangeMaxMs = range.max.getTime();
+  
+  // 오늘 날짜의 시작 위치 계산
   let todayPct;
-  if (today < rangeMinNorm) {
-    todayPct = 25;
-  } else if (today > rangeMaxNorm) {
+  if (todayMs < rangeMinMs) {
+    todayPct = 0;
+  } else if (todayMs > rangeMaxMs) {
     todayPct = 100;
   } else {
-    todayPct = ((today - range.min) / totalMs) * 100;
+    todayPct = ((todayMs - rangeMinMs) / totalMs) * 100;
   }
   todayPct = Math.max(0, Math.min(100, todayPct));
+  
+  // 하루의 너비를 퍼센트로 계산 (86400000ms = 1일)
+  const oneDayMs = 86400000;
+  const todayWidthPct = (oneDayMs / totalMs) * 100;
+  
   const todayStr = getSeoulTodayString();
   el.style.setProperty("--today-pct", String(todayPct));
+  el.style.setProperty("--today-width-pct", String(todayWidthPct));
 
   const header = document.createElement("div");
   header.className = "gantt-timeline-header";
@@ -480,16 +517,22 @@ function renderGanttChart(posts) {
 
   const datesHeader = document.createElement("div");
   datesHeader.className = "gantt-dates-header";
-  // 실제 게시물의 시작일/종료일 표시 (패딩이 추가되지 않은 날짜)
-  const startStr = range.actualMin.toISOString().slice(0, 10);
-  const endStr = range.actualMax.toISOString().slice(0, 10);
+  
+  // 시작월과 종료월 계산
+  const minDate = new Date(range.actualMin);
+  const maxDate = new Date(range.actualMax);
+  
+  // YYYY-MM 형식으로 변환
+  const startMonthStr = `${minDate.getFullYear()}-${String(minDate.getMonth() + 1).padStart(2, '0')}`;
+  const endMonthStr = `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, '0')}`;
+  
   datesHeader.innerHTML = "";
   const datesLabelStart = document.createElement("span");
   datesLabelStart.className = "gantt-header-date";
-  datesLabelStart.textContent = "시작일 " + startStr;
+  datesLabelStart.textContent = "시작달 " + startMonthStr;
   const datesLabelEnd = document.createElement("span");
   datesLabelEnd.className = "gantt-header-date";
-  datesLabelEnd.textContent = "종료일 " + endStr;
+  datesLabelEnd.textContent = "종료달 " + endMonthStr;
   datesHeader.appendChild(datesLabelStart);
   datesHeader.appendChild(datesLabelEnd);
 
@@ -500,6 +543,7 @@ function renderGanttChart(posts) {
   const body = document.createElement("div");
   body.className = "gantt-timeline-body";
   body.style.setProperty("--today-pct", String(todayPct));
+  body.style.setProperty("--today-width-pct", String(todayWidthPct));
 
   const todayLine = document.createElement("div");
   todayLine.className = "gantt-today-line";
@@ -538,8 +582,8 @@ function renderGanttChart(posts) {
     const barRow = document.createElement("div");
     barRow.className = "gantt-cell-bar-row";
 
-    const start = new Date(post.startDate).getTime();
-    const end = new Date(post.endDate).getTime();
+    const start = parseDateInSeoul(post.startDate).getTime();
+    const end = parseDateInSeoul(post.endDate).getTime();
     const leftPct = ((start - range.min) / totalMs) * 100;
     const widthPct = ((end - start) / totalMs) * 100;
 
@@ -581,6 +625,8 @@ function renderGanttChart(posts) {
 
   const todayCaptionWrap = document.createElement("div");
   todayCaptionWrap.className = "gantt-today-caption-wrap";
+  todayCaptionWrap.style.setProperty("--today-pct", String(todayPct));
+  todayCaptionWrap.style.setProperty("--today-width-pct", String(todayWidthPct));
   const todayCaption = document.createElement("span");
   todayCaption.className = "gantt-today-caption";
   todayCaption.textContent = "오늘 " + todayStr;
