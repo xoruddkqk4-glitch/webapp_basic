@@ -424,7 +424,12 @@ function getDateRange(posts) {
   });
   if (min === null || max === null || min > max) return null;
   const pad = (max - min) * 0.05 || 86400000 * 7;
-  return { min: new Date(min.getTime() - pad), max: new Date(max.getTime() + pad) };
+  return { 
+    min: new Date(min.getTime() - pad), 
+    max: new Date(max.getTime() + pad),
+    actualMin: min,  // 실제 게시물 최소 시작일
+    actualMax: max   // 실제 게시물 최대 종료일
+  };
 }
 
 /**
@@ -475,8 +480,9 @@ function renderGanttChart(posts) {
 
   const datesHeader = document.createElement("div");
   datesHeader.className = "gantt-dates-header";
-  const startStr = range.min.toISOString().slice(0, 10);
-  const endStr = range.max.toISOString().slice(0, 10);
+  // 실제 게시물의 시작일/종료일 표시 (패딩이 추가되지 않은 날짜)
+  const startStr = range.actualMin.toISOString().slice(0, 10);
+  const endStr = range.actualMax.toISOString().slice(0, 10);
   datesHeader.innerHTML = "";
   const datesLabelStart = document.createElement("span");
   datesLabelStart.className = "gantt-header-date";
