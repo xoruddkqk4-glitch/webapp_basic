@@ -715,6 +715,9 @@ async function initApp() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.textContent;
+
     const formData = new FormData(form);
     const department = (formData.get("department") || "").toString().trim();
     const personInCharge = (formData.get("personInCharge") || "").toString().trim();
@@ -733,11 +736,20 @@ async function initApp() {
       return;
     }
 
+    // 저장 중 표시
+    submitBtn.disabled = true;
+    submitBtn.textContent = "저장 중...";
+    submitBtn.style.opacity = "0.7";
+
     let attachmentMeta = null;
     if (fileInput && fileInput.files && fileInput.files.length > 0) {
       const file = fileInput.files[0];
       if (file.size > MAX_ATTACHMENT_SIZE) {
         alert("첨부파일은 최대 10MB까지 가능합니다.");
+        // 버튼 복구
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalBtnText;
+        submitBtn.style.opacity = "1";
         return;
       }
       try {
@@ -745,6 +757,10 @@ async function initApp() {
       } catch (e) {
         console.error(e);
         alert("첨부파일을 업로드하는 중 오류가 발생했습니다.");
+        // 버튼 복구
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalBtnText;
+        submitBtn.style.opacity = "1";
         return;
       }
     }
@@ -769,9 +785,18 @@ async function initApp() {
       form.querySelector("#department").value = "";
       form.querySelector("#personInCharge").value = "";
       if (fileInput) fileInput.value = "";
+
+      // 버튼 복구
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalBtnText;
+      submitBtn.style.opacity = "1";
     } catch (e) {
       console.error("Failed to add post to Firestore", e);
       alert("게시물 저장 중 오류가 발생했습니다.");
+      // 버튼 복구
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalBtnText;
+      submitBtn.style.opacity = "1";
     }
   });
 
